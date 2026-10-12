@@ -7,3 +7,11 @@ class AndroidPlatform : Platform {
 }
 
 actual fun getPlatform(): Platform = AndroidPlatform()
+
+actual fun getCurrentDateString(): String {
+    return try {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+    } catch (e: Exception) {
+        ""
+    }
+}

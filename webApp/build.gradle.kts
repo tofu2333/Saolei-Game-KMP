@@ -6,6 +6,8 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+version = libs.versions.app.version.get()
+
 kotlin {
     js {
         browser()

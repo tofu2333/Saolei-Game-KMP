@@ -1,48 +1,90 @@
 package com.exp.saolei
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import org.jetbrains.compose.resources.painterResource
+import com.exp.saolei.audio.AudioPlayer
+import com.exp.saolei.model.GameSettings
+import com.exp.saolei.presentation.GameIntent
+import com.exp.saolei.presentation.GameViewModel
+import com.exp.saolei.storage.DataManager
+import com.exp.saolei.ui.screens.GameScreen
+import com.exp.saolei.ui.screens.LeaderboardScreen
+import com.exp.saolei.ui.screens.RulesScreen
+import com.exp.saolei.ui.screens.SettingsScreen
+import com.exp.saolei.ui.theme.SaoleiTheme
 
-import saolei.shared.generated.resources.Res
-import saolei.shared.generated.resources.compose_multiplatform
+enum class Screen {
+    GAME,
+    LEADERBOARD,
+    RULES,
+    SETTINGS
+}
 
 @Composable
-@Preview
 fun App() {
-    MaterialTheme {
-        var showContent by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
+    var settings by remember { mutableStateOf(DataManager.loadSettings()) }
+    var currentScreen by remember { mutableStateOf(Screen.GAME) }
+
+    val audioPlayer = remember { AudioPlayer() }
+    val gameViewModel = remember { GameViewModel(settings) }
+
+    // Synchronize BGM playback with settings
+    LaunchedEffect(settings.bgmEnabled, settings.bgmVolume) {
+        if (settings.bgmEnabled) {
+            audioPlayer.startBgm(settings.bgmVolume)
+        } else {
+            audioPlayer.stopBgm()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlayer.release()
+        }
+    }
+
+    SaoleiTheme(themeMode = settings.themeMode) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
         ) {
-            Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
-            }
-            AnimatedVisibility(showContent) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
-                }
+            when (currentScreen) {
+                Screen.GAME -> GameScreen(
+                    viewModel = gameViewModel,
+                    audioPlayer = audioPlayer,
+                    onOpenLeaderboard = { currentScreen = Screen.LEADERBOARD },
+                    onOpenRules = { currentScreen = Screen.RULES },
+                    onOpenSettings = { currentScreen = Screen.SETTINGS }
+                )
+
+                Screen.LEADERBOARD -> LeaderboardScreen(
+                    onBack = { currentScreen = Screen.GAME }
+                )
+
+                Screen.RULES -> RulesScreen(
+                    onBack = { currentScreen = Screen.GAME }
+                )
+
+                Screen.SETTINGS -> SettingsScreen(
+                    settings = settings,
+                    onSettingsChanged = { newSettings ->
+                        settings = newSettings
+                        gameViewModel.processIntent(GameIntent.UpdateSettings(newSettings))
+                    },
+                    onBack = { currentScreen = Screen.GAME }
+                )
             }
         }
     }

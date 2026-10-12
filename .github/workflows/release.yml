@@ -1,0 +1,604 @@
+name: Release Multiplatform App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Mark as Pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare Release Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine Version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          elif [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v1.0.0"
+          fi
+          VER="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "Target Release Tag: $TAG (version: $VER)"
+
+  build-android:
+    name: Build Android APK (arm64, armv7, x86, x86_64, all)
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Android Release APKs
+        run: ./gradlew :androidApp:assembleRelease
+
+      - name: Sign Android APKs
+        shell: bash
+        run: |
+          mkdir -p output
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "Signing with secret keystore..."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.jks
+            KS_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.ANDROID_KEY_ALIAS }}"
+            KEY_PASS="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          else
+            echo "Generating release signing key for GitHub release..."
+            keytool -genkeypair -v \
+              -keystore release.jks \
+              -alias saolei \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "saolei123" \
+              -keypass "saolei123" \
+              -dname "CN=Saolei, OU=Saolei, O=Saolei, L=Unknown, ST=Unknown, C=CN"
+            KS_PASS="saolei123"
+            KEY_ALIAS="saolei"
+            KEY_PASS="saolei123"
+          fi
+
+          for APK in androidApp/build/outputs/apk/release/*.apk; do
+            [ -f "$APK" ] || continue
+            BASENAME=$(basename "$APK")
+            case "$BASENAME" in
+              *arm64-v8a*) ARCH_TAG="arm64" ;;
+              *armeabi-v7a*) ARCH_TAG="armv7" ;;
+              *x86_64*) ARCH_TAG="x86_64" ;;
+              *x86*) ARCH_TAG="x86" ;;
+              *universal*) ARCH_TAG="all" ;;
+              *) ARCH_TAG="all" ;;
+            esac
+
+            OUT_APK="output/Saolei-Android-${ARCH_TAG}-${TAG}.apk"
+            echo "Signing $APK -> $OUT_APK"
+            $BUILD_TOOLS_DIR/apksigner sign \
+              --ks release.jks \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass "pass:$KS_PASS" \
+              --key-pass "pass:$KEY_PASS" \
+              --out "$OUT_APK" \
+              "$APK"
+          done
+
+          echo "=== Generated Signed Android APKs ==="
+          ls -lh output/
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-artifact
+          path: output/*
+          retention-days: 1
+
+  build-desktop-windows:
+    name: Build Windows Desktop (x64 MSI & EXE)
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup WiX Toolset
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            if (Test-Path "C:\Program Files (x86)\WiX Toolset v3.11\bin") {
+              "C:\Program Files (x86)\WiX Toolset v3.11\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+              Write-Host "Added pre-installed WiX to PATH"
+            } else {
+              Write-Host "Installing WiX via Chocolatey..."
+              choco install wixtoolset -y
+            }
+          }
+
+      - name: Package Windows Distributions
+        shell: pwsh
+        run: .\gradlew.bat :desktopApp:packageReleaseDistributionForCurrentOS
+
+      - name: Collect Windows Artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path output
+          $msi = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Filter *.msi | Select-Object -First 1
+          if ($msi) {
+            Copy-Item $msi.FullName -Destination "output/Saolei-Windows-x64-$($env:TAG).msi"
+            Write-Host "Found MSI: $($msi.FullName)"
+          }
+          $exe = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Filter *.exe | Select-Object -First 1
+          if ($exe) {
+            Copy-Item $exe.FullName -Destination "output/Saolei-Windows-x64-$($env:TAG).exe"
+            Write-Host "Found EXE: $($exe.FullName)"
+          }
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: output/*
+          retention-days: 1
+
+  build-desktop-macos-intel:
+    name: Build macOS Desktop (Intel x86_64 DMG)
+    needs: prepare
+    runs-on: macos-13
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Package macOS Intel DMG
+        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS
+
+      - name: Collect macOS Intel Artifacts
+        shell: bash
+        run: |
+          mkdir -p output
+          DMG_FILE=$(find desktopApp/build/compose/binaries -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "output/Saolei-macOS-Intel-x86_64-${TAG}.dmg"
+            echo "Found Intel DMG: $DMG_FILE"
+          else
+            echo "Error: DMG file not found!"
+            exit 1
+          fi
+
+      - name: Upload macOS Intel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-artifact
+          path: output/*
+          retention-days: 1
+
+  build-desktop-macos-arm64:
+    name: Build macOS Desktop (Apple Silicon arm64 DMG)
+    needs: prepare
+    runs-on: macos-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Package macOS Apple Silicon DMG
+        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS
+
+      - name: Collect macOS Apple Silicon Artifacts
+        shell: bash
+        run: |
+          mkdir -p output
+          DMG_FILE=$(find desktopApp/build/compose/binaries -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "output/Saolei-macOS-AppleSilicon-arm64-${TAG}.dmg"
+            echo "Found Apple Silicon DMG: $DMG_FILE"
+          else
+            echo "Error: DMG file not found!"
+            exit 1
+          fi
+
+      - name: Upload macOS Apple Silicon Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-artifact
+          path: output/*
+          retention-days: 1
+
+  build-desktop-linux:
+    name: Build Linux Desktop (AppImage, DEB & Universal JAR)
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Linux Packaging Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot dpkg wget libfuse2
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Distributable and Linux Packages
+        run: ./gradlew :desktopApp:createReleaseDistributable :desktopApp:packageReleaseDistributionForCurrentOS :desktopApp:packageReleaseUberJarForCurrentOS
+
+      - name: Package Linux AppImage
+        shell: bash
+        run: |
+          mkdir -p output
+
+          APP_DIR_SOURCE=$(find desktopApp/build/compose/binaries/main-release -type d -name "bin" -exec dirname {} \; | head -n 1)
+          if [ -z "$APP_DIR_SOURCE" ]; then
+            APP_DIR_SOURCE=$(find desktopApp/build/compose -type d -name "bin" -exec dirname {} \; | head -n 1)
+          fi
+          echo "Found application directory: $APP_DIR_SOURCE"
+
+          mkdir -p AppDir/usr
+          cp -r "$APP_DIR_SOURCE/"* AppDir/usr/
+
+          LAUNCHER=$(find AppDir/usr/bin -maxdepth 1 -type f -perm /111 | head -n 1)
+          EXE_NAME=$(basename "$LAUNCHER")
+          echo "Found launcher executable: $EXE_NAME"
+
+          cat << 'EOF' > AppDir/AppRun
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "$HERE/usr/bin/EXE_PLACEHOLDER" "$@"
+          EOF
+          sed -i "s/EXE_PLACEHOLDER/$EXE_NAME/g" AppDir/AppRun
+          chmod +x AppDir/AppRun
+
+          cat << EOF > AppDir/saolei.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=Saolei
+          GenericName=Minesweeper
+          Comment=扫雷 Minesweeper
+          Exec=$EXE_NAME
+          Icon=saolei
+          Categories=Game;LogicGame;
+          Terminal=false
+          EOF
+
+          cp desktopApp/src/main/resources/icon.png AppDir/saolei.png
+          cp desktopApp/src/main/resources/icon.png AppDir/.DirIcon
+
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract
+
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir "output/Saolei-Linux-x86_64-${TAG}.AppImage"
+          chmod +x "output/Saolei-Linux-x86_64-${TAG}.AppImage"
+
+          DEB_FILE=$(find desktopApp/build/compose/binaries -name "*.deb" | head -n 1)
+          if [ -n "$DEB_FILE" ]; then
+            cp "$DEB_FILE" "output/Saolei-Linux-${TAG}.deb"
+            echo "Found DEB: $DEB_FILE"
+          fi
+
+          JAR_FILE=$(find desktopApp/build/compose/jars -name "*.jar" | head -n 1)
+          if [ -n "$JAR_FILE" ]; then
+            cp "$JAR_FILE" "output/Saolei-Desktop-universal-${TAG}.jar"
+            echo "Found Universal JAR: $JAR_FILE"
+          fi
+
+          echo "=== Linux Output Files ==="
+          ls -lh output/
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifact
+          path: output/*
+          retention-days: 1
+
+  build-ios:
+    name: Build iOS Package (IPA & App Bundle)
+    needs: prepare
+    runs-on: macos-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Xcode Archive
+        run: |
+          xcodebuild -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/iosApp.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package iOS Artifacts
+        shell: bash
+        run: |
+          mkdir -p output Payload
+          APP_PATH="build/iosApp.xcarchive/Products/Applications/Saolei.app"
+          if [ -d "$APP_PATH" ]; then
+            cp -r "$APP_PATH" Payload/
+            zip -qr "output/Saolei-iOS-arm64-${TAG}-unsigned.ipa" Payload
+            (cd build/iosApp.xcarchive/Products/Applications && zip -qr "$GITHUB_WORKSPACE/output/Saolei-iOS-${TAG}.app.zip" Saolei.app)
+            echo "iOS packages created successfully."
+          else
+            echo "Error: Saolei.app not found in xcarchive!"
+            exit 1
+          fi
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifact
+          path: output/*
+          retention-days: 1
+
+  build-web:
+    name: Build Web App (Wasm Bundle)
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Web Application
+        run: ./gradlew :webApp:wasmJsBrowserDistribution
+
+      - name: Package Web Distribution
+        shell: bash
+        run: |
+          mkdir -p output
+          DIST_DIR="webApp/build/dist/wasmJs/productionExecutable"
+          if [ -d "$DIST_DIR" ]; then
+            (cd "$DIST_DIR" && zip -qr "$GITHUB_WORKSPACE/output/Saolei-Web-${TAG}.zip" .)
+            echo "Web bundle created successfully."
+          else
+            echo "Error: Web distribution directory not found!"
+            exit 1
+          fi
+
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-artifact
+          path: output/*
+          retention-days: 1
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - build-android
+      - build-desktop-windows
+      - build-desktop-macos-intel
+      - build-desktop-macos-arm64
+      - build-desktop-linux
+      - build-ios
+      - build-web
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Organize Release Assets and Generate Checksums
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find all-artifacts -type f -exec cp {} release-assets/ \;
+          echo "=== Release Assets ==="
+          ls -lh release-assets/
+
+          cd release-assets
+          sha256sum * > checksums.txt
+          echo "=== Checksums ==="
+          cat checksums.txt
+
+      - name: Generate Release Body
+        shell: bash
+        run: |
+          cat << 'EOF' > release_body.md
+          ## 💣 经典扫雷 Minesweeper 全平台 Release
+
+          欢迎体验基于 **Compose Multiplatform** 打造的全平台现代扫雷游戏！针对主流操作系统与芯片架构进行了精细分包编译。
+
+          ---
+
+          ### 📦 各平台与系统架构安装包列表
+
+          #### 📱 Android 平台
+          | 文件名 | 适用架构 / 说明 |
+          | :--- | :--- |
+          | `Saolei-Android-arm64-${{ env.TAG }}.apk` | **ARM 64位**（绝大多数现代 Android 手机/平板，性能更优、体积更小） |
+          | `Saolei-Android-armv7-${{ env.TAG }}.apk` | **ARM 32位**（老旧安卓手机或低配嵌入式设备） |
+          | `Saolei-Android-x86_64-${{ env.TAG }}.apk` | **x86 64位**（PC 上的安卓模拟器、ChromeOS、车机等） |
+          | `Saolei-Android-x86-${{ env.TAG }}.apk` | **x86 32位**（部分老版 32位 PC 模拟器） |
+          | `Saolei-Android-all-${{ env.TAG }}.apk` | **全架构 Universal 整合包**（包含所有架构，可在任意 Android 设备安装） |
+
+          #### 🪟 Windows 平台
+          | 文件名 | 适用架构 / 说明 |
+          | :--- | :--- |
+          | `Saolei-Windows-x64-${{ env.TAG }}.msi` | **Windows 64位 MSI 安装包**（主流 Intel/AMD 处理器，包含 Windows 11 ARM64 模拟） |
+          | `Saolei-Windows-x64-${{ env.TAG }}.exe` | **Windows 64位 独立可执行程序**（即点即用） |
+
+          #### 🍎 macOS 平台
+          | 文件名 | 适用芯片架构 / 说明 |
+          | :--- | :--- |
+          | `Saolei-macOS-AppleSilicon-arm64-${{ env.TAG }}.dmg` | **Apple Silicon 原生版**（适用于 M1 / M2 / M3 / M4 等芯片的 Mac） |
+          | `Saolei-macOS-Intel-x86_64-${{ env.TAG }}.dmg` | **Intel 常规版**（适用于配备 Intel Core 处理器的传统 Mac） |
+
+          #### 🐧 Linux 平台
+          | 文件名 | 格式 / 说明 |
+          | :--- | :--- |
+          | `Saolei-Linux-x86_64-${{ env.TAG }}.AppImage` | **AppImage 通用独立运行包**（赋予执行权限直接运行，兼容 Ubuntu/Debian/Fedora/Arch 等所有发行版） |
+          | `Saolei-Linux-${{ env.TAG }}.deb` | **Debian / Ubuntu 安装包** (`sudo dpkg -i ...`) |
+          | `Saolei-Desktop-universal-${{ env.TAG }}.jar` | **全平台通用 Java 运行包** (`java -jar ...`，需 JDK 17+) |
+
+          #### 🍏 iOS 平台
+          | 文件名 | 说明 |
+          | :--- | :--- |
+          | `Saolei-iOS-arm64-${{ env.TAG }}-unsigned.ipa` | **iOS 离线安装包**（供 TrollStore、AltStore、Sideloadly 或企业签名使用） |
+          | `Saolei-iOS-${{ env.TAG }}.app.zip` | **iOS 应用包**（供 Simulator 调试或侧载测试） |
+
+          #### 🌐 Web 网页端
+          | 文件名 | 说明 |
+          | :--- | :--- |
+          | `Saolei-Web-${{ env.TAG }}.zip` | **Web 静态站点包**（基于 Kotlin/Wasm + Canvas，解压至任意静态服务器即可运行） |
+
+          #### 🔐 校验码
+          | 文件名 | 说明 |
+          | :--- | :--- |
+          | `checksums.txt` | 包含上述所有文件的 SHA-256 完整性哈希校验码 |
+
+          ---
+
+          ### 🚀 安装与运行指引
+          - **Linux AppImage**：
+            ```bash
+            chmod +x Saolei-Linux-x86_64-${{ env.TAG }}.AppImage
+            ./Saolei-Linux-x86_64-${{ env.TAG }}.AppImage
+            ```
+          - **macOS 用户**：如打开时提示“无法打开，因为无法验证开发者”，请在终端执行：
+            ```bash
+            xattr -cr /Applications/Saolei.app
+            ```
+          - **Web 部署**：解压 `Saolei-Web-${{ env.TAG }}.zip` 至 Nginx、GitHub Pages、Cloudflare Pages 或任何静态 Web 托管服务即可访问。
+
+          ---
+          EOF
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
+          name: "扫雷 Minesweeper ${{ env.TAG }}"
+          body_path: release_body.md
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ inputs.prerelease || false }}

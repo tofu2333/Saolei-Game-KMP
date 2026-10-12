@@ -20,9 +20,21 @@ compose.desktop {
         mainClass = "com.exp.saolei.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb)
             packageName = "com.exp.saolei"
-            packageVersion = "1.0.0"
+            packageVersion = libs.versions.app.version.get()
+            description = "扫雷 Minesweeper"
+            macOS {
+                iconFile.set(project.file("src/main/resources/icon.icns"))
+                bundleID = "com.exp.saolei"
+            }
+            windows {
+                iconFile.set(project.file("src/main/resources/icon.ico"))
+                menuGroup = "扫雷"
+            }
+            linux {
+                iconFile.set(project.file("src/main/resources/icon.png"))
+            }
         }
     }
 }
