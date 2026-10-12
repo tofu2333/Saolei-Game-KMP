@@ -164,7 +164,7 @@ jobs:
 
       - name: Package Windows Distributions
         shell: pwsh
-        run: .\gradlew.bat :desktopApp:packageReleaseDistributionForCurrentOS
+        run: .\gradlew.bat :desktopApp:packageReleaseDistributionForCurrentOS --stacktrace
 
       - name: Collect Windows Artifacts
         shell: pwsh
@@ -212,7 +212,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Package macOS Intel DMG
-        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS
+        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS --stacktrace
 
       - name: Collect macOS Intel Artifacts
         shell: bash
@@ -258,7 +258,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Package macOS Apple Silicon DMG
-        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS
+        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS --stacktrace
 
       - name: Collect macOS Apple Silicon Artifacts
         shell: bash
@@ -309,32 +309,35 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Distributable and Linux Packages
-        run: ./gradlew :desktopApp:createReleaseDistributable :desktopApp:packageReleaseDistributionForCurrentOS :desktopApp:packageReleaseUberJarForCurrentOS
+        run: ./gradlew :desktopApp:createReleaseDistributable :desktopApp:packageReleaseDistributionForCurrentOS :desktopApp:packageReleaseUberJarForCurrentOS --stacktrace
 
       - name: Package Linux AppImage
         shell: bash
         run: |
           mkdir -p output
 
-          APP_DIR_SOURCE=$(find desktopApp/build/compose/binaries/main-release -type d -name "bin" -exec dirname {} \; | head -n 1)
+          APP_DIR_SOURCE=$(find desktopApp/build/compose/binaries/main-release/app -mindepth 1 -maxdepth 1 -type d | head -n 1)
           if [ -z "$APP_DIR_SOURCE" ]; then
-            APP_DIR_SOURCE=$(find desktopApp/build/compose -type d -name "bin" -exec dirname {} \; | head -n 1)
+            APP_DIR_SOURCE=$(find desktopApp/build/compose/binaries -type d -name "app" -exec find {} -mindepth 1 -maxdepth 1 -type d \; | head -n 1)
           fi
           echo "Found application directory: $APP_DIR_SOURCE"
 
-          mkdir -p AppDir/usr
+          mkdir -p AppDir/usr/bin AppDir/usr/lib AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
           cp -r "$APP_DIR_SOURCE/"* AppDir/usr/
 
           LAUNCHER=$(find AppDir/usr/bin -maxdepth 1 -type f -perm /111 | head -n 1)
+          if [ -z "$LAUNCHER" ]; then
+            LAUNCHER=$(find AppDir/usr -maxdepth 2 -type f -perm /111 | head -n 1)
+          fi
           EXE_NAME=$(basename "$LAUNCHER")
           echo "Found launcher executable: $EXE_NAME"
 
           cat << 'EOF' > AppDir/AppRun
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "${0}")")"
-          exec "$HERE/usr/bin/EXE_PLACEHOLDER" "$@"
+          exec "$HERE/usr/bin/LAUNCHER_NAME" "$@"
           EOF
-          sed -i "s/EXE_PLACEHOLDER/$EXE_NAME/g" AppDir/AppRun
+          sed -i "s/LAUNCHER_NAME/$EXE_NAME/g" AppDir/AppRun
           chmod +x AppDir/AppRun
 
           cat << EOF > AppDir/saolei.desktop
@@ -342,21 +345,23 @@ jobs:
           Type=Application
           Name=Saolei
           GenericName=Minesweeper
-          Comment=扫雷 Minesweeper
+          Comment=Minesweeper
           Exec=$EXE_NAME
           Icon=saolei
           Categories=Game;LogicGame;
           Terminal=false
           EOF
+          cp AppDir/saolei.desktop AppDir/usr/share/applications/saolei.desktop
 
           cp desktopApp/src/main/resources/icon.png AppDir/saolei.png
           cp desktopApp/src/main/resources/icon.png AppDir/.DirIcon
+          cp desktopApp/src/main/resources/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/saolei.png
 
           wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           ./appimagetool --appimage-extract
 
-          ARCH=x86_64 ./squashfs-root/AppRun AppDir "output/Saolei-Linux-x86_64-${TAG}.AppImage"
+          ARCH=x86_64 ./squashfs-root/AppRun --no-appstream AppDir "output/Saolei-Linux-x86_64-${TAG}.AppImage"
           chmod +x "output/Saolei-Linux-x86_64-${TAG}.AppImage"
 
           DEB_FILE=$(find desktopApp/build/compose/binaries -name "*.deb" | head -n 1)

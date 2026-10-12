@@ -19,10 +19,14 @@ compose.desktop {
     application {
         mainClass = "com.exp.saolei.MainKt"
 
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb)
-            packageName = "com.exp.saolei"
-            packageVersion = libs.versions.app.version.get()
+            packageName = "Saolei"
+            packageVersion = "1.0.0"
             description = "扫雷 Minesweeper"
             macOS {
                 iconFile.set(project.file("src/main/resources/icon.icns"))

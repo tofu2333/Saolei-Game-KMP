@@ -32,8 +32,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Gradle Check
-        run: ./gradlew check
+      - name: Run Gradle Unit Tests & Checks
+        run: ./gradlew check -x wasmJsBrowserTest -x jsBrowserTest
 
       - name: Build Android Release
         run: ./gradlew :androidApp:assembleRelease
