@@ -27,14 +27,14 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb)
             packageName = "Saolei"
             packageVersion = "1.0.0"
-            description = "扫雷 Minesweeper"
+            description = "Saolei Minesweeper"
             macOS {
                 iconFile.set(project.file("src/main/resources/icon.icns"))
                 bundleID = "com.exp.saolei"
             }
             windows {
                 iconFile.set(project.file("src/main/resources/icon.ico"))
-                menuGroup = "扫雷"
+                menuGroup = "Saolei"
             }
             linux {
                 iconFile.set(project.file("src/main/resources/icon.png"))
