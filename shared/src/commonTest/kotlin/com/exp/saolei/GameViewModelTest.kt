@@ -70,6 +70,29 @@ class GameViewModelTest {
     }
 
     @Test
+    fun testCellRightClickTogglesFlagInBothModes() {
+        val viewModel = GameViewModel()
+        // Default mode is DIG
+        assertEquals(GameInteractionMode.DIG, viewModel.uiState.value.interactionMode)
+
+        // Right click directly flags
+        viewModel.processIntent(GameIntent.CellRightClick(2, 2))
+        assertEquals(CellVisualState.FLAGGED, viewModel.uiState.value.boardState[2, 2]?.visualState)
+        assertEquals(1, viewModel.uiState.value.boardState.flaggedCount)
+
+        // Right click again unflags (or moves to questioned/hidden)
+        viewModel.processIntent(GameIntent.CellRightClick(2, 2))
+        assertTrue(viewModel.uiState.value.boardState[2, 2]?.visualState != CellVisualState.FLAGGED)
+        assertEquals(0, viewModel.uiState.value.boardState.flaggedCount)
+
+        // Switch to FLAG mode, right click still functions correctly
+        viewModel.processIntent(GameIntent.ToggleInteractionMode(GameInteractionMode.FLAG))
+        viewModel.processIntent(GameIntent.CellRightClick(3, 3))
+        assertEquals(CellVisualState.FLAGGED, viewModel.uiState.value.boardState[3, 3]?.visualState)
+        assertEquals(1, viewModel.uiState.value.boardState.flaggedCount)
+    }
+
+    @Test
     fun testCellLongClickRevealsInFlagMode() {
         val viewModel = GameViewModel()
         viewModel.processIntent(GameIntent.ToggleInteractionMode(GameInteractionMode.FLAG))

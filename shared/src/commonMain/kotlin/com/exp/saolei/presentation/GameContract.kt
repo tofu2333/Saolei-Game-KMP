@@ -28,6 +28,7 @@ data class GameUiState(
 sealed interface GameIntent {
     data class CellClick(val row: Int, val col: Int) : GameIntent
     data class CellLongClick(val row: Int, val col: Int) : GameIntent
+    data class CellRightClick(val row: Int, val col: Int) : GameIntent
     data class ChordClick(val row: Int, val col: Int) : GameIntent
     data class ToggleInteractionMode(val mode: GameInteractionMode) : GameIntent
     data class RestartGame(val difficulty: Difficulty? = null) : GameIntent

@@ -40,6 +40,15 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -55,7 +64,8 @@ fun MinefieldView(
     modifier: Modifier = Modifier,
     cellSize: Int = 40,
     isDark: Boolean = LocalIsDark.current,
-    onFitScaleCalculated: ((Float) -> Unit)? = null
+    onFitScaleCalculated: ((Float) -> Unit)? = null,
+    onCellRightClick: (row: Int, col: Int) -> Unit = onCellLongClick
 ) {
     BoxWithConstraints(
         modifier = modifier.fillMaxSize().clipToBounds(),
@@ -129,7 +139,17 @@ fun MinefieldView(
                                             modifier = Modifier
                                                 .requiredSize(baseCellSize + cellSpacing)
                                                 .padding(cellSpacing / 2)
-                                                .pointerInput(cell.visualState, r, c) {
+                                                .pointerInput(cell, r, c) {
+                                                    detectSecondaryGestures(
+                                                        onRightClick = { onCellRightClick(r, c) },
+                                                        onMiddleClick = {
+                                                            if (cell.isRevealed && cell.adjacentMines > 0) {
+                                                                onChord(r, c)
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                                .pointerInput(cell, r, c) {
                                                     detectTapGestures(
                                                         onTap = {
                                                             if (cell.isRevealed) {
@@ -160,6 +180,32 @@ fun MinefieldView(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+private suspend fun PointerInputScope.detectSecondaryGestures(
+    onRightClick: () -> Unit,
+    onMiddleClick: (() -> Unit)? = null
+) {
+    awaitEachGesture {
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val isRightClick = event.buttons.isSecondaryPressed ||
+                (event.keyboardModifiers.isCtrlPressed && event.buttons.isPrimaryPressed)
+            val isMiddleClick = event.buttons.isTertiaryPressed
+
+            if ((isRightClick || isMiddleClick) && event.changes.any { it.changedToDown() }) {
+                val down = event.changes.first { it.changedToDown() }
+                down.consume()
+                if (isMiddleClick) {
+                    onMiddleClick?.invoke()
+                } else {
+                    onRightClick()
+                }
+                waitForUpOrCancellation(PointerEventPass.Initial)?.consume()
+                break
             }
         }
     }

@@ -126,6 +126,9 @@ fun GameScreen(
                     onCellLongClick = { r, c ->
                         viewModel.processIntent(GameIntent.CellLongClick(r, c))
                     },
+                    onCellRightClick = { r, c ->
+                        viewModel.processIntent(GameIntent.CellRightClick(r, c))
+                    },
                     onChord = { r, c ->
                         viewModel.processIntent(GameIntent.ChordClick(r, c))
                     },

@@ -532,6 +532,11 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -553,10 +558,31 @@ jobs:
       - name: Generate Release Body
         shell: bash
         run: |
-          cat << 'EOF' > release_body.md
-          ## 💣 经典扫雷 Minesweeper 全平台 Release
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          git log -1 --format="%B" > commit_msg.txt
+          TAG_ANNOTATION=$(git tag -l --format="%(contents)" "${TAG}" 2>/dev/null || true)
+
+          cat << EOF > release_body.md
+          ## 💣 经典扫雷 Minesweeper 全平台 Release (${TAG})
 
           欢迎体验基于 **Compose Multiplatform** 打造的全平台现代扫雷游戏！针对主流操作系统与芯片架构进行了精细分包编译。
+
+          ### 📝 本次版本更新说明 / Commit Message (\`${COMMIT_HASH}\`)
+
+          EOF
+
+          cat commit_msg.txt >> release_body.md
+
+          if [ -n "$TAG_ANNOTATION" ]; then
+            cat << EOF >> release_body.md
+
+          ### 🏷️ 标签附注说明 / Tag Note
+
+          $TAG_ANNOTATION
+          EOF
+          fi
+
+          cat << 'EOF' >> release_body.md
 
           ---
 

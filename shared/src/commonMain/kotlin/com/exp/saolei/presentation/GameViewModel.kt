@@ -62,6 +62,7 @@ class GameViewModel(
         when (intent) {
             is GameIntent.CellClick -> handleCellClick(intent.row, intent.col)
             is GameIntent.CellLongClick -> handleCellLongClick(intent.row, intent.col)
+            is GameIntent.CellRightClick -> handleCellRightClick(intent.row, intent.col)
             is GameIntent.ChordClick -> handleChordClick(intent.row, intent.col)
             is GameIntent.ToggleInteractionMode -> handleToggleInteractionMode(intent.mode)
             is GameIntent.RestartGame -> handleRestartGame(intent.difficulty)
@@ -115,6 +116,23 @@ class GameViewModel(
         } else {
             revealCell(row, col)
         }
+    }
+
+    private fun handleCellRightClick(row: Int, col: Int) {
+        val currentState = _uiState.value
+        val currentBoard = currentState.boardState
+        if (currentBoard.status == GameStatus.WON || currentBoard.status == GameStatus.LOST) return
+
+        val cell = currentBoard[row, col] ?: return
+        if (cell.isRevealed) {
+            if (cell.adjacentMines > 0) {
+                handleChordClick(row, col)
+            }
+            return
+        }
+
+        // Right-clicking an unrevealed cell always toggles flag
+        toggleFlag(row, col)
     }
 
     private fun revealCell(row: Int, col: Int) {
