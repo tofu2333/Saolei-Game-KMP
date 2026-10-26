@@ -168,7 +168,7 @@ jobs:
 
       - name: Package Windows Distributions
         shell: pwsh
-        run: .\gradlew.bat :desktopApp:packageReleaseDistributionForCurrentOS :desktopApp:createReleaseDistributable --stacktrace
+        run: .\gradlew.bat :desktopApp:packageReleaseDistributionForCurrentOS :desktopApp:packageReleaseMsi :desktopApp:packageReleaseExe :desktopApp:createReleaseDistributable --stacktrace
 
       - name: Print JPackage Error Logs on Failure
         if: failure()
@@ -183,24 +183,77 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path output
+
+          Write-Host "=== All files in desktopApp/build/compose/binaries ==="
+          Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse | ForEach-Object {
+            Write-Host "$($_.FullName) (Length: $($_.Length) bytes)"
+          }
+
+          # 1. Collect MSI installer (approx 65 MB)
           $msi = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Filter *.msi | Select-Object -First 1
           if ($msi) {
             Copy-Item $msi.FullName -Destination "output/Saolei-Windows-x64-$($env:TAG).msi"
-            Write-Host "Found MSI: $($msi.FullName)"
+            Write-Host "Collected MSI installer: $($msi.FullName) ($($msi.Length) bytes)"
+          } else {
+            Write-Warning "No MSI installer found!"
           }
-          $exe = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Filter *.exe | Select-Object -First 1
-          if ($exe) {
-            Copy-Item $exe.FullName -Destination "output/Saolei-Windows-x64-$($env:TAG).exe"
-            Write-Host "Found EXE: $($exe.FullName)"
+
+          # 2. Collect EXE installer (must NOT be the 579KB launcher stub in app/Saolei/)
+          $installerExe = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Filter *.exe | Where-Object {
+            $_.FullName -notmatch '[\\/]app[\\/]'
+          } | Select-Object -First 1
+
+          if ($installerExe) {
+            Copy-Item $installerExe.FullName -Destination "output/Saolei-Windows-x64-$($env:TAG).exe"
+            Write-Host "Collected EXE installer: $($installerExe.FullName) ($($installerExe.Length) bytes)"
+          } else {
+            Write-Host "No standalone EXE installer found in exe/ folder."
           }
-          # Also package portable app directory as a zip
-          $appDir = Get-ChildItem -Path desktopApp/build/compose/binaries -Directory -Filter "app" | Select-Object -First 1
-          if ($appDir) {
-            $portableDir = Get-ChildItem -Path $appDir.FullName -Directory | Select-Object -First 1
-            if ($portableDir) {
-              Compress-Archive -Path "$($portableDir.FullName)\*" -DestinationPath "output/Saolei-Windows-x64-$($env:TAG)-portable.zip"
-              Write-Host "Created Portable Zip from: $($portableDir.FullName)"
+
+          # 3. Collect Portable application directory (contains Saolei.exe, runtime, and app)
+          $portableDir = Get-ChildItem -Path desktopApp/build/compose/binaries -Recurse -Directory | Where-Object {
+            (Test-Path (Join-Path $_.FullName "runtime")) -and (Test-Path (Join-Path $_.FullName "app"))
+          } | Select-Object -First 1
+
+          if ($portableDir) {
+            Write-Host "Found Portable Application Directory: $($portableDir.FullName)"
+
+            # Package portable ZIP using 7z (or Compress-Archive)
+            if (Get-Command 7z -ErrorAction SilentlyContinue) {
+              Write-Host "Creating portable zip with 7z..."
+              & 7z a -tzip -mx=5 "output/Saolei-Windows-x64-$($env:TAG)-portable.zip" "$($portableDir.FullName)\*"
+            } else {
+              Write-Host "Creating portable zip with Compress-Archive..."
+              Compress-Archive -Path "$($portableDir.FullName)\*" -DestinationPath "output/Saolei-Windows-x64-$($env:TAG)-portable.zip" -Force
             }
+            Write-Host "Created Portable Zip: output/Saolei-Windows-x64-$($env:TAG)-portable.zip"
+
+            # Fallback: if no installer EXE was produced by WiX/jpackage, generate a self-extracting single-file portable EXE
+            if (-not (Test-Path "output/Saolei-Windows-x64-$($env:TAG).exe")) {
+              Write-Host "Creating self-extracting single-file EXE with 7z..."
+              & 7z a -sfx "output/Saolei-Windows-x64-$($env:TAG).exe" "$($portableDir.FullName)\*"
+              Write-Host "Created SFX Portable EXE: output/Saolei-Windows-x64-$($env:TAG).exe"
+            }
+          } else {
+            Write-Warning "Could not find portable application directory!"
+          }
+
+          # 4. Rigorous validation: output EXE MUST NOT be a bare launcher stub (< 5MB)
+          if (Test-Path "output/Saolei-Windows-x64-$($env:TAG).exe") {
+            $outputExe = Get-Item "output/Saolei-Windows-x64-$($env:TAG).exe"
+            Write-Host "Verified Output EXE: $($outputExe.FullName) ($($outputExe.Length) bytes)"
+            if ($outputExe.Length -lt 5000000) {
+              Write-Error "CRITICAL ERROR: Windows EXE size ($($outputExe.Length) bytes) is too small! Expected complete bundle (> 5MB)."
+              exit 1
+            }
+          } else {
+            Write-Error "CRITICAL ERROR: No Windows EXE was produced!"
+            exit 1
+          }
+
+          Write-Host "=== Final Windows Artifacts ==="
+          Get-ChildItem -Path output | ForEach-Object {
+            Write-Host "$($_.Name) ($($_.Length) bytes)"
           }
 
       - name: Upload Windows Artifact

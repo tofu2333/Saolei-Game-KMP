@@ -80,3 +80,37 @@ kotlin {
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
 }
+
+val syncAppInfo = tasks.register("syncAppInfo") {
+    val version = libs.versions.app.version.get()
+    val versionCode = libs.versions.app.versionCode.get()
+    val targetFile = file("src/commonMain/kotlin/com/exp/saolei/AppInfo.kt")
+    inputs.property("version", version)
+    inputs.property("versionCode", versionCode)
+    outputs.file(targetFile)
+
+    doLast {
+        val content = """
+            package com.exp.saolei
+
+            /**
+             * Global application metadata and versioning information.
+             * Automatically synchronized from gradle/libs.versions.toml.
+             */
+            object AppInfo {
+                const val APP_NAME = "扫雷"
+                const val VERSION_NAME = "$version"
+                const val VERSION_CODE = $versionCode
+                const val FULL_VERSION = "v${'$'}VERSION_NAME"
+            }
+        """.trimIndent() + "\n"
+
+        if (!targetFile.exists() || targetFile.readText() != content) {
+            targetFile.writeText(content)
+        }
+    }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    dependsOn(syncAppInfo)
+}

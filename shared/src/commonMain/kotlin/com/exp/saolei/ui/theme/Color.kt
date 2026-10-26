@@ -16,9 +16,7 @@ val LightSurfaceVariant = Color(0xFFE2E8F0)
 val LightTextPrimary = Color(0xFF0F172A)
 val LightTextSecondary = Color(0xFF64748B)
 val LightTileHidden = Color(0xFFE2E8F0)
-val LightTileHiddenTop = Color(0xFFFFFFFF)
-val LightTileHiddenBottom = Color(0xFFE2E8F0)
-val LightTileRevealed = Color(0xFFF1F5F9)
+val LightTileRevealed = Color(0xFFF8FAFC)
 val LightTileBorder = Color(0xFFCBD5E1)
 
 // Dark Theme Colors
@@ -29,8 +27,6 @@ val DarkSurfaceVariant = Color(0xFF1E293B)
 val DarkTextPrimary = Color(0xFFF8FAFC)
 val DarkTextSecondary = Color(0xFFCBD5E1) // High-contrast slate 300 for clear readability
 val DarkTileHidden = Color(0xFF243046)
-val DarkTileHiddenTop = Color(0xFF334155)
-val DarkTileHiddenBottom = Color(0xFF1E293B)
 val DarkTileRevealed = Color(0xFF111827)
 val DarkTileBorder = Color(0xFF334155)
 

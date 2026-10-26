@@ -18,6 +18,10 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.exp.saolei.MainKt"
+        val localJavaHome = file("/Users/tofu/Library/Java/JavaVirtualMachines/ms-21.0.8/Contents/Home")
+        if (localJavaHome.exists()) {
+            javaHome = localJavaHome.absolutePath
+        }
 
         buildTypes.release.proguard {
             isEnabled.set(false)
@@ -28,6 +32,7 @@ compose.desktop {
             packageName = "Saolei"
             packageVersion = "1.0.0"
             description = "Saolei Minesweeper"
+            modules("java.base", "java.desktop", "java.logging", "jdk.unsupported")
             macOS {
                 iconFile.set(project.file("src/main/resources/icon.icns"))
                 bundleID = "com.exp.saolei"

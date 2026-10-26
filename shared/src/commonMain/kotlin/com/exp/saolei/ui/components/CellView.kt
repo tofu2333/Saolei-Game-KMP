@@ -9,16 +9,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -32,13 +30,9 @@ import com.exp.saolei.model.Cell
 import com.exp.saolei.model.CellVisualState
 import com.exp.saolei.ui.theme.DarkTileBorder
 import com.exp.saolei.ui.theme.DarkTileHidden
-import com.exp.saolei.ui.theme.DarkTileHiddenBottom
-import com.exp.saolei.ui.theme.DarkTileHiddenTop
 import com.exp.saolei.ui.theme.DarkTileRevealed
 import com.exp.saolei.ui.theme.LightTileBorder
 import com.exp.saolei.ui.theme.LightTileHidden
-import com.exp.saolei.ui.theme.LightTileHiddenBottom
-import com.exp.saolei.ui.theme.LightTileHiddenTop
 import com.exp.saolei.ui.theme.LightTileRevealed
 import com.exp.saolei.ui.theme.LocalIsDark
 import com.exp.saolei.ui.theme.MineDanger
@@ -65,46 +59,32 @@ fun CellView(
         animationSpec = tween(durationMillis = 150)
     )
 
+    val borderColor = when {
+        cell.isCorrectFlag -> if (isDark) Color(0xFF10B981) else Color(0xFF34D399)
+        cell.isRevealed -> if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+        else -> if (isDark) DarkTileBorder else LightTileBorder
+    }
+    val borderWidth = when {
+        cell.isCorrectFlag -> 1.5.dp
+        cell.isRevealed -> 0.5.dp
+        else -> 1.dp
+    }
+
     Box(
         modifier = modifier
             .size(size)
             .clip(shape)
             .background(bgColor)
-            .then(
-                if (cell.isHidden || (cell.isFlagged && !cell.isCorrectFlag && !cell.isFalseFlag) || cell.isQuestioned) {
-                    Modifier
-                        .border(
-                            width = 1.dp,
-                            color = if (isDark) DarkTileBorder else LightTileBorder,
-                            shape = shape
-                        )
-                        .background(
-                            Brush.verticalGradient(
-                                colors = if (isDark) {
-                                    listOf(DarkTileHiddenTop, DarkTileHiddenBottom)
-                                } else {
-                                    listOf(LightTileHiddenTop, LightTileHiddenBottom)
-                                }
-                            )
-                        )
-                } else {
-                    Modifier.border(
-                        width = if (cell.isCorrectFlag) 1.dp else 0.5.dp,
-                        color = if (cell.isCorrectFlag) {
-                            if (isDark) Color(0xFF10B981) else Color(0xFF34D399)
-                        } else {
-                            if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
-                        },
-                        shape = shape
-                    )
-                }
+            .border(
+                width = borderWidth,
+                color = borderColor,
+                shape = shape
             ),
         contentAlignment = Alignment.Center
     ) {
         when (cell.visualState) {
             CellVisualState.HIDDEN -> {
-                // Bevel highlight for tactile feel
-                BevelHighlight(size = size, isDark = isDark)
+                // Flat 2D clean cell
             }
 
             CellVisualState.FLAGGED -> {
@@ -113,13 +93,11 @@ fun CellView(
                 } else if (cell.isFalseFlag) {
                     FalseFlagIcon(size = size)
                 } else {
-                    BevelHighlight(size = size, isDark = isDark)
                     FlagIcon(size = size)
                 }
             }
 
             CellVisualState.QUESTIONED -> {
-                BevelHighlight(size = size, isDark = isDark)
                 Text(
                     text = "?",
                     color = MineWarning,
@@ -158,43 +136,6 @@ fun CellView(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun BevelHighlight(size: Dp, isDark: Boolean) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val strokeW = 1.5.dp.toPx()
-        val highlightColor = if (isDark) Color(0x33FFFFFF) else Color(0x66FFFFFF)
-        val shadowColor = if (isDark) Color(0x44000000) else Color(0x22000000)
-
-        // Top and Left edge highlight
-        drawLine(
-            color = highlightColor,
-            start = Offset(strokeW, strokeW),
-            end = Offset(this.size.width - strokeW, strokeW),
-            strokeWidth = strokeW
-        )
-        drawLine(
-            color = highlightColor,
-            start = Offset(strokeW, strokeW),
-            end = Offset(strokeW, this.size.height - strokeW),
-            strokeWidth = strokeW
-        )
-
-        // Bottom and Right edge shadow
-        drawLine(
-            color = shadowColor,
-            start = Offset(this.size.width - strokeW, strokeW),
-            end = Offset(this.size.width - strokeW, this.size.height - strokeW),
-            strokeWidth = strokeW
-        )
-        drawLine(
-            color = shadowColor,
-            start = Offset(strokeW, this.size.height - strokeW),
-            end = Offset(this.size.width - strokeW, this.size.height - strokeW),
-            strokeWidth = strokeW
-        )
     }
 }
 
@@ -244,51 +185,28 @@ private fun FlagIcon(size: Dp) {
 }
 
 @Composable
-private fun MineIcon(size: Dp, isDetonated: Boolean, isDark: Boolean = LocalIsDark.current) {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = this.size.width
-        val h = this.size.height
-        val center = Offset(w / 2f, h / 2f)
-        val radius = w * 0.26f
+private fun MineIcon(
+    size: Dp,
+    isDetonated: Boolean,
+    isDark: Boolean = LocalIsDark.current
+) {
+    val iconColor = if (isDetonated) {
+        Color.White
+    } else if (isDark) {
+        Color(0xFFE2E8F0)
+    } else {
+        Color(0xFF1E293B)
+    }
 
-        val bodyColor = if (isDetonated) Color.White else if (isDark) Color(0xFFE2E8F0) else Color(0xFF1E293B)
-        val spikeColor = if (isDetonated) Color.White else if (isDark) Color(0xFFCBD5E1) else Color(0xFF0F172A)
-        val spikeLength = w * 0.16f
-        val strokeW = (w * 0.09f).coerceAtLeast(2f)
-
-        // Spikes in 8 directions
-        val angles = listOf(0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)
-        for (deg in angles) {
-            val rad = deg * (kotlin.math.PI / 180.0)
-            val start = Offset(
-                center.x + (radius * kotlin.math.cos(rad)).toFloat(),
-                center.y + (radius * kotlin.math.sin(rad)).toFloat()
-            )
-            val end = Offset(
-                center.x + ((radius + spikeLength) * kotlin.math.cos(rad)).toFloat(),
-                center.y + ((radius + spikeLength) * kotlin.math.sin(rad)).toFloat()
-            )
-            drawLine(
-                color = spikeColor,
-                start = start,
-                end = end,
-                strokeWidth = strokeW,
-                cap = StrokeCap.Round
-            )
-        }
-
-        // Mine main circle
-        drawCircle(
-            color = bodyColor,
-            radius = radius,
-            center = center
-        )
-
-        // Light reflection dot
-        drawCircle(
-            color = if (isDetonated) Color(0xFFFFCCCC) else Color(0x88FFFFFF),
-            radius = radius * 0.32f,
-            center = Offset(center.x - radius * 0.35f, center.y - radius * 0.35f)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = AppIcons.Settings,
+            contentDescription = "地雷",
+            modifier = Modifier.size(size * 0.72f),
+            tint = iconColor
         )
     }
 }
@@ -322,7 +240,11 @@ private fun FalseFlagIcon(size: Dp) {
 private fun CorrectFlaggedMineIcon(size: Dp, isDark: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // Layer 1: Mine at base
-        MineIcon(size = size, isDetonated = false, isDark = isDark)
+        MineIcon(
+            size = size,
+            isDetonated = false,
+            isDark = isDark
+        )
 
         // Layer 2: Flag layered on top with crisp outline for high contrast
         Canvas(modifier = Modifier.fillMaxSize()) {

@@ -61,41 +61,7 @@ object AppIcons {
         }.build()
     }
 
-    val Mine: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "Mine",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
-        ).apply {
-            path(fill = SolidColor(Color.White)) {
-                moveTo(12f, 2f)
-                verticalLineTo(5f)
-                moveTo(12f, 19f)
-                verticalLineTo(22f)
-                moveTo(2f, 12f)
-                horizontalLineTo(5f)
-                moveTo(19f, 12f)
-                horizontalLineTo(22f)
-                moveTo(4.93f, 4.93f)
-                lineTo(7.05f, 7.05f)
-                moveTo(16.95f, 16.95f)
-                lineTo(19.07f, 19.07f)
-                moveTo(4.93f, 19.07f)
-                lineTo(7.05f, 16.95f)
-                moveTo(16.95f, 7.05f)
-                lineTo(19.07f, 4.93f)
-                // Center core
-                moveTo(12f, 6f)
-                curveTo(8.69f, 6f, 6f, 8.69f, 6f, 12f)
-                curveTo(6f, 15.31f, 8.69f, 18f, 12f, 18f)
-                curveTo(15.31f, 18f, 18f, 15.31f, 18f, 12f)
-                curveTo(18f, 8.69f, 15.31f, 6f, 12f, 6f)
-                close()
-            }
-        }.build()
-    }
+    val Mine: ImageVector get() = Settings
 
     val Timer: ImageVector by lazy {
         ImageVector.Builder(

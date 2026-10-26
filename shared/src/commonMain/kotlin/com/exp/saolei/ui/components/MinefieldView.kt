@@ -126,7 +126,7 @@ fun MinefieldView(
                 shape = RoundedCornerShape(16.dp),
                 color = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0),
                 border = BorderStroke(1.5.dp, if (isDark) Color(0xFF334155) else Color(0xFFCBD5E1)),
-                shadowElevation = 4.dp
+                shadowElevation = 0.dp
             ) {
                 Box(modifier = Modifier.padding(boardPadding)) {
                     Column {
