@@ -289,9 +289,9 @@ jobs:
           architecture: 'aarch64'
 
       - name: Package macOS Apple Silicon DMG
-        run: ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS --stacktrace
+        run: ./gradlew clean :desktopApp:packageReleaseDistributionForCurrentOS --no-daemon --stacktrace
 
-      - name: Collect Apple Silicon Artifact
+      - name: Collect and Verify Apple Silicon Artifact
         shell: bash
         run: |
           mkdir -p output
@@ -299,8 +299,22 @@ jobs:
           if [ -n "$DMG_FILE" ]; then
             cp "$DMG_FILE" "output/Saolei-macOS-AppleSilicon-arm64-${TAG}.dmg"
             echo "Found Apple Silicon DMG: $DMG_FILE"
-            rm -rf desktopApp/build/compose/binaries
+
+            # Mount DMG and verify binary architecture is arm64
+            mkdir -p /tmp/mount_arm64
+            hdiutil attach "$DMG_FILE" -nobrowse -readonly -mountpoint /tmp/mount_arm64
+            ARM64_INFO=$(file /tmp/mount_arm64/Saolei.app/Contents/MacOS/Saolei)
+            echo "Apple Silicon Mach-O info: $ARM64_INFO"
+            hdiutil detach /tmp/mount_arm64 -force || true
+            rmdir /tmp/mount_arm64 || true
+            if [[ "$ARM64_INFO" != *"arm64"* ]]; then
+              echo "CRITICAL ERROR: Apple Silicon binary is not arm64! Info: $ARM64_INFO"
+              exit 1
+            fi
+
+            # Completely clean build outputs and stop daemon before building Intel DMG
             ./gradlew --stop
+            rm -rf desktopApp/build shared/build build .gradle
           else
             echo "Error: Apple Silicon DMG not found!"
             exit 1
@@ -315,17 +329,31 @@ jobs:
           architecture: 'x64'
 
       - name: Package macOS Intel DMG
-        run: arch -x86_64 ./gradlew :desktopApp:packageReleaseDistributionForCurrentOS --stacktrace
+        run: arch -x86_64 ./gradlew clean :desktopApp:packageReleaseDistributionForCurrentOS --no-daemon --stacktrace
 
-      - name: Collect Intel Artifact
+      - name: Collect and Verify Intel Artifact
         shell: bash
         run: |
           DMG_FILE=$(find desktopApp/build/compose/binaries -name "*.dmg" | head -n 1)
           if [ -n "$DMG_FILE" ]; then
             cp "$DMG_FILE" "output/Saolei-macOS-Intel-x86_64-${TAG}.dmg"
             echo "Found Intel DMG: $DMG_FILE"
-            rm -rf desktopApp/build/compose/binaries
+
+            # Mount DMG and verify binary architecture is x86_64
+            mkdir -p /tmp/mount_x64
+            hdiutil attach "$DMG_FILE" -nobrowse -readonly -mountpoint /tmp/mount_x64
+            X64_INFO=$(file /tmp/mount_x64/Saolei.app/Contents/MacOS/Saolei)
+            echo "Intel Mach-O info: $X64_INFO"
+            hdiutil detach /tmp/mount_x64 -force || true
+            rmdir /tmp/mount_x64 || true
+            if [[ "$X64_INFO" != *"x86_64"* ]]; then
+              echo "CRITICAL ERROR: Intel binary is not x86_64! Info: $X64_INFO"
+              exit 1
+            fi
+
+            # Completely clean build outputs and stop daemon before iOS build
             ./gradlew --stop
+            rm -rf desktopApp/build shared/build build .gradle
           else
             echo "Error: Intel DMG not found!"
             exit 1
